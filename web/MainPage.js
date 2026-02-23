@@ -614,6 +614,78 @@ function getMainHTML(isChina) {
     body { min-height: 100vh; display: flex; align-items: center; justify-content: center; font-family: 'Microsoft YaHei', Arial, sans-serif; overflow: hidden; position: relative; }
     .gradient-bg { position: fixed; inset: 0; background: linear-gradient(-45deg, #667eea, #764ba2, #f093fb, #4facfe); background-size: 400% 400%; animation: gradientFlow 15s ease infinite; z-index: -1; }
     @keyframes gradientFlow { 0% { background-position: 0% 50%; } 50% { background-position: 100% 50%; } 100% { background-position: 0% 50%; } }
+    
+    /* 开源公告横幅 */
+    .announcement-banner {
+      position: fixed;
+      top: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(255, 255, 255, 0.95);
+      backdrop-filter: blur(10px);
+      padding: 12px 24px;
+      border-radius: 50px;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      z-index: 1000;
+      animation: slideDown 0.6s ease-out;
+      border: 1px solid rgba(255, 255, 255, 0.3);
+    }
+    
+    @keyframes slideDown {
+      from {
+        opacity: 0;
+        transform: translate(-50%, -20px);
+      }
+      to {
+        opacity: 1;
+        transform: translate(-50%, 0);
+      }
+    }
+    
+    .announcement-banner:hover {
+      box-shadow: 0 12px 48px rgba(0, 0, 0, 0.15);
+      transform: translateX(-50%) translateY(-2px);
+      transition: all 0.3s ease;
+    }
+    
+    .announcement-icon {
+      font-size: 20px;
+      animation: pulse 2s ease-in-out infinite;
+    }
+    
+    @keyframes pulse {
+      0%, 100% { transform: scale(1); }
+      50% { transform: scale(1.1); }
+    }
+    
+    .announcement-text {
+      font-size: 14px;
+      color: #333;
+      font-weight: 500;
+    }
+    
+    .github-link {
+      color: #0078d4;
+      text-decoration: none;
+      font-weight: 600;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      transition: all 0.2s;
+    }
+    
+    .github-link:hover {
+      color: #106ebe;
+      transform: translateY(-1px);
+    }
+    
+    .github-icon {
+      font-size: 16px;
+    }
+    
     .container { text-align: center; padding: 20px; z-index: 1; }
     h1 { font-size: 4rem; color: #fff; margin-bottom: 2rem; min-height: 5rem; text-shadow: 2px 2px 4px rgba(0,0,0,.3); }
     .cursor { animation: blink 1s infinite; }
@@ -622,17 +694,45 @@ function getMainHTML(isChina) {
     .button-container { margin-top: 3rem; display: flex; gap: 1.5rem; justify-content: center; flex-wrap: wrap; }
     .action-btn { padding: 12px 30px; color:#fff; border-radius:50px; border:2px solid rgba(255,255,255,.4); text-decoration:none; backdrop-filter: blur(10px); transition:.3s; }
     .action-btn:hover { transform: translateY(-3px); background: rgba(255,255,255,.25); }
+    
+    /* 响应式设计 */
+    @media (max-width: 640px) {
+      .announcement-banner {
+        top: 10px;
+        padding: 10px 20px;
+        max-width: 90%;
+      }
+      .announcement-text {
+        font-size: 12px;
+      }
+      .announcement-icon {
+        font-size: 16px;
+      }
+    }
   </style>
 </head>
 <body>
 <div class="gradient-bg"></div>
+
+<!-- 开源公告横幅 -->
+<div class="announcement-banner">
+  <span class="announcement-icon">⭐</span>
+  <span class="announcement-text">
+    本项目已在 GitHub 开源：
+    <a href="https://github.com/xingnengmao666/qlzx-website" class="github-link" target="_blank" rel="noopener noreferrer">
+      <span class="github-icon">🔗</span>
+      <span>qlzx-website</span>
+    </a>
+  </span>
+</div>
+
 <div class="container">
   <h1 id="text"><span class="cursor">|</span></h1>
   <div class="subtitle">如遇问题请联系 support@mail.qlzx.lol</div>
   <div class="button-container">
     <a href="https://mirror.qlzx.lol" class="action-btn">📥 下载镜像中转</a>
     <a href="https://ping0.cc" class="action-btn">🌐 IP检测</a>
-    <a href="https://timeapi.qlzx.lol" class="action-btn">🕐 北京时间</a>
+    <a href="https://time.qlzx.lol" class="action-btn">🕐 北京时间</a>
     <a href="/news.html" class="action-btn">📰 热点新闻</a>
     <a href="/email-apply.html" class="action-btn">📧 邮箱申请</a>
   </div>
@@ -940,7 +1040,7 @@ function getEmailApplyHTML() {
         <!-- Cloudflare Turnstile 验证码 -->
         <div class="form-group">
           <label class="form-label">人机验证<span class="required">*</span></label>
-          <div class="cf-turnstile" data-sitekey="0x4AAAAAACOtLQZDDrkDcbJy" data-theme="light"></div>
+          <div class="cf-turnstile" data-sitekey="YOUR_SITE_KEY" data-theme="light"></div>
           <div class="form-hint">请完成人机验证以继续</div>
         </div>
         
