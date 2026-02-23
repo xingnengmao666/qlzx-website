@@ -1,4 +1,4 @@
-# 维护模式 & 404 页面使用指南 🛠️
+# 清理中学非官方站部署指南 🛠️
 
 ## 📋 功能说明
 
@@ -465,18 +465,16 @@ async function handleScheduled(event, env, ctx) {
 ## 📚 完整文件清单
 
 ### 必需文件：
-- ✅ `worker-d1-cron.js` - 更新的主程序
-- ✅ `schema-v2.sql` - 新的数据库结构
+- ✅ `web/MainPage.js` - 更新的主程序
+- ✅ `build-commands/schema-v2.sql` - 新的数据库结构
 
 ### 可选文件：
-- 📄 `maintenance-console.html` - 可视化管理控制台
-- 📄 `MAINTENANCE-MODE-GUIDE.md` - 本文档
+- 📄 `build-commands/maintenance-console.html` - 可视化管理控制台
 
 ---
 
-## 🎉 总结
+## 🎉 功能总结
 
-你现在拥有：
 
 1. ✅ **精美的 404 页面** - 动画效果 + 友好提示
 2. ✅ **维护模式系统** - 一键开启/关闭
@@ -484,4 +482,4 @@ async function handleScheduled(event, env, ctx) {
 4. ✅ **API 接口** - 支持自动化管理
 5. ✅ **安全机制** - ADMIN_TOKEN 认证
 
-**现在就开始使用吧！** 🚀
+
