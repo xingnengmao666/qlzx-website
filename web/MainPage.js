@@ -90,6 +90,36 @@ async function handleRequest(request, env, ctx) {
     return handleNewsAPI(env);
   }
 
+  // 倒计时页面
+  if (url.pathname === '/countdown.html' || url.pathname === '/countdown') {
+    return new Response(getCountdownHTML(), {
+      headers: { 'content-type': 'text/html;charset=UTF-8' }
+    });
+  }
+
+  // 倒计时数据 API
+  if (url.pathname === '/api/countdowns') {
+    return handleCountdownsAPI(env);
+  }
+
+  // 添加倒计时 API
+  if (url.pathname === '/api/countdown/add' && request.method === 'POST') {
+    const authHeader = request.headers.get('Authorization');
+    if (authHeader === `Bearer ${env.ADMIN_TOKEN}`) {
+      return handleAddCountdown(request, env);
+    }
+    return new Response('Unauthorized', { status: 401 });
+  }
+
+  // 删除倒计时 API
+  if (url.pathname === '/api/countdown/delete' && request.method === 'POST') {
+    const authHeader = request.headers.get('Authorization');
+    if (authHeader === `Bearer ${env.ADMIN_TOKEN}`) {
+      return handleDeleteCountdown(request, env);
+    }
+    return new Response('Unauthorized', { status: 401 });
+  }
+
   // 手动触发更新（可选，用于测试）
   if (url.pathname === '/api/update-news' && request.method === 'POST') {
     const authHeader = request.headers.get('Authorization');
@@ -599,6 +629,127 @@ async function verifyTurnstile(token, env) {
   }
 }
 
+/* ================= 倒计时功能 ================= */
+
+// 获取所有倒计时
+async function handleCountdownsAPI(env) {
+  try {
+    const { results } = await env.DB.prepare(`
+      SELECT id, title, target_time, created_at
+      FROM countdowns
+      ORDER BY target_time ASC
+    `).all();
+
+    return new Response(JSON.stringify({
+      success: true,
+      data: results
+    }), {
+      headers: { 
+        'Content-Type': 'application/json;charset=UTF-8',
+        'Cache-Control': 'public, max-age=30'
+      }
+    });
+  } catch (error) {
+    console.error('获取倒计时失败:', error);
+    return new Response(JSON.stringify({
+      success: false,
+      error: error.message
+    }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json;charset=UTF-8' }
+    });
+  }
+}
+
+// 添加倒计时
+async function handleAddCountdown(request, env) {
+  try {
+    const body = await request.json();
+    const { title, target_time } = body;
+
+    if (!title || !target_time) {
+      return new Response(JSON.stringify({
+        success: false,
+        error: '标题和目标时间不能为空'
+      }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+
+    // 验证时间格式
+    const targetTimestamp = new Date(target_time).getTime();
+    if (isNaN(targetTimestamp)) {
+      return new Response(JSON.stringify({
+        success: false,
+        error: '无效的时间格式'
+      }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+
+    await env.DB.prepare(`
+      INSERT INTO countdowns (title, target_time, created_at)
+      VALUES (?, ?, ?)
+    `).bind(title, targetTimestamp, Date.now()).run();
+
+    return new Response(JSON.stringify({
+      success: true,
+      message: '倒计时添加成功'
+    }), {
+      headers: { 'Content-Type': 'application/json' }
+    });
+  } catch (error) {
+    console.error('添加倒计时失败:', error);
+    return new Response(JSON.stringify({
+      success: false,
+      error: error.message
+    }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
+}
+
+// 删除倒计时
+async function handleDeleteCountdown(request, env) {
+  try {
+    const body = await request.json();
+    const { id } = body;
+
+    if (!id) {
+      return new Response(JSON.stringify({
+        success: false,
+        error: 'ID 不能为空'
+      }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+
+    await env.DB.prepare(`
+      DELETE FROM countdowns WHERE id = ?
+    `).bind(id).run();
+
+    return new Response(JSON.stringify({
+      success: true,
+      message: '倒计时删除成功'
+    }), {
+      headers: { 'Content-Type': 'application/json' }
+    });
+  } catch (error) {
+    console.error('删除倒计时失败:', error);
+    return new Response(JSON.stringify({
+      success: false,
+      error: error.message
+    }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
+}
+
 /* ================= 主页 HTML ================= */
 
 function getMainHTML(isChina) {
@@ -733,6 +884,7 @@ function getMainHTML(isChina) {
     <a href="https://mirror.qlzx.lol" class="action-btn">📥 下载镜像中转</a>
     <a href="https://ping0.cc" class="action-btn">🌐 IP检测</a>
     <a href="https://time.qlzx.lol" class="action-btn">🕐 北京时间</a>
+    <a href="https://dy.pdedu.sh.cn/phyEdu/student/#/home" class="action-btn">🏃 中考体育报名</a>
     <a href="/news.html" class="action-btn">📰 热点新闻</a>
     <a href="/email-apply.html" class="action-btn">📧 邮箱申请</a>
   </div>
@@ -1337,6 +1489,827 @@ function get404HTML() {
       <a href="/news.html" class="btn btn-secondary">📰 查看新闻</a>
     </div>
   </div>
+</body>
+</html>
+  `;
+}
+
+/* ================= 倒计时页面 HTML ================= */
+
+
+/* ================= 倒计时页面 HTML（纯CSS+JS实现） ================= */
+
+
+/* ================= 倒计时页面 HTML（机场翻牌效果 + Fluent Design） ================= */
+
+
+/* ================= 倒计时页面 HTML（机场翻牌 + Fluent UI） ================= */
+
+
+/* ================= 倒计时页面 HTML（机场翻牌机效果，Fluent Design） ================= */
+
+function getCountdownHTML() {
+  return `
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>倒计时 - 清流中学非官方站</title>
+  
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    
+    body {
+      font-family: 'Segoe UI', 'Microsoft YaHei', sans-serif;
+      background: #f3f2f1;
+      min-height: 100vh;
+      padding: 20px;
+    }
+    
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+    
+    .header {
+      text-align: center;
+      margin-bottom: 40px;
+      padding-top: 20px;
+    }
+    
+    .header h1 {
+      font-size: 42px;
+      font-weight: 600;
+      color: #201f1e;
+      margin-bottom: 8px;
+    }
+    
+    .header p {
+      font-size: 16px;
+      color: #605e5c;
+    }
+    
+    .back-link {
+      display: inline-block;
+      margin-bottom: 20px;
+      color: #0078d4;
+      text-decoration: none;
+      font-size: 14px;
+      font-weight: 600;
+      transition: color 0.2s;
+    }
+    
+    .back-link:hover {
+      color: #106ebe;
+      text-decoration: underline;
+    }
+    
+    .countdown-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(380px, 1fr));
+      gap: 24px;
+      margin-bottom: 40px;
+    }
+    
+    .countdown-card {
+      background: #ffffff;
+      border-radius: 8px;
+      padding: 32px;
+      box-shadow: 0 1.6px 3.6px rgba(0,0,0,0.132), 0 0.3px 0.9px rgba(0,0,0,0.108);
+      transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+      position: relative;
+      border: 1px solid #edebe9;
+    }
+    
+    .countdown-card:hover {
+      box-shadow: 0 6.4px 14.4px rgba(0,0,0,0.132), 0 1.2px 3.6px rgba(0,0,0,0.108);
+      transform: translateY(-2px);
+    }
+    
+    .countdown-title {
+      font-size: 24px;
+      font-weight: 600;
+      color: #323130;
+      margin-bottom: 24px;
+      text-align: center;
+    }
+    
+    .flip-clock {
+      display: flex;
+      justify-content: center;
+      gap: 20px;
+      margin: 24px 0;
+    }
+    
+    .flip-unit {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+    }
+    
+    .flip-label {
+      font-size: 11px;
+      color: #605e5c;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    
+    .flip-card-container {
+      display: flex;
+      gap: 3px;
+    }
+    
+    /* 机场翻牌机核心样式 */
+    .flip-card {
+      position: relative;
+      width: 48px;
+      height: 64px;
+      perspective: 200px;
+    }
+    
+    /* 上半部分（固定） */
+    .flip-card-top {
+      position: absolute;
+      width: 100%;
+      height: 50%;
+      top: 0;
+      left: 0;
+      background: #0078d4;
+      border-radius: 4px 4px 0 0;
+      overflow: hidden;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.14);
+    }
+    
+    .flip-card-top::after {
+      content: '';
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      height: 1px;
+      background: rgba(0, 0, 0, 0.2);
+    }
+    
+    /* 下半部分（固定） */
+    .flip-card-bottom {
+      position: absolute;
+      width: 100%;
+      height: 50%;
+      bottom: 0;
+      left: 0;
+      background: #0078d4;
+      border-radius: 0 0 4px 4px;
+      overflow: hidden;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.14);
+    }
+    
+    /* 翻牌的上半部分 */
+    .flip-card-top-flip {
+      position: absolute;
+      width: 100%;
+      height: 50%;
+      top: 0;
+      left: 0;
+      background: #0078d4;
+      border-radius: 4px 4px 0 0;
+      overflow: hidden;
+      transform-origin: bottom;
+      transform: rotateX(0deg);
+      z-index: 2;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.14);
+    }
+    
+    .flip-card-top-flip::after {
+      content: '';
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      height: 1px;
+      background: rgba(0, 0, 0, 0.2);
+    }
+    
+    /* 翻牌的下半部分 */
+    .flip-card-bottom-flip {
+      position: absolute;
+      width: 100%;
+      height: 50%;
+      bottom: 0;
+      left: 0;
+      background: #0078d4;
+      border-radius: 0 0 4px 4px;
+      overflow: hidden;
+      transform-origin: top;
+      transform: rotateX(0deg);
+      z-index: 1;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.14);
+    }
+    
+    /* 翻牌动画 */
+    .flip-card.flipping .flip-card-top-flip {
+      animation: flipTop 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    
+    .flip-card.flipping .flip-card-bottom-flip {
+      animation: flipBottom 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    
+    @keyframes flipTop {
+      0% {
+        transform: rotateX(0deg);
+      }
+      100% {
+        transform: rotateX(-90deg);
+      }
+    }
+    
+    @keyframes flipBottom {
+      0% {
+        transform: rotateX(90deg);
+      }
+      100% {
+        transform: rotateX(0deg);
+      }
+    }
+    
+    /* 数字显示 */
+    .flip-number {
+      position: absolute;
+      width: 100%;
+      height: 200%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 36px;
+      font-weight: 600;
+      color: #ffffff;
+    }
+    
+    /* 上半部分的数字 */
+    .flip-card-top .flip-number,
+    .flip-card-top-flip .flip-number {
+      top: 0;
+    }
+    
+    /* 下半部分的数字 */
+    .flip-card-bottom .flip-number,
+    .flip-card-bottom-flip .flip-number {
+      bottom: 0;
+    }
+    
+    .countdown-complete {
+      text-align: center;
+      padding: 48px 24px;
+      background: #f3f2f1;
+      border-radius: 8px;
+      border: 2px solid #107c10;
+    }
+    
+    .countdown-complete h3 {
+      font-size: 28px;
+      font-weight: 600;
+      color: #107c10;
+      margin-bottom: 8px;
+    }
+    
+    .countdown-complete p {
+      font-size: 16px;
+      color: #323130;
+    }
+    
+    .delete-btn {
+      position: absolute;
+      top: 12px;
+      right: 12px;
+      background: #f3f2f1;
+      color: #605e5c;
+      border: none;
+      width: 32px;
+      height: 32px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 16px;
+      transition: all 0.1s;
+      opacity: 0;
+      z-index: 10;
+    }
+    
+    .delete-btn:hover {
+      background: #e1dfdd;
+      color: #a4262c;
+    }
+    
+    .countdown-card:hover .delete-btn {
+      opacity: 1;
+    }
+    
+    .admin-section {
+      text-align: center;
+      margin-top: 40px;
+    }
+    
+    .admin-btn {
+      background: #0078d4;
+      color: #ffffff;
+      border: none;
+      padding: 12px 32px;
+      border-radius: 4px;
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.14);
+      transition: all 0.1s;
+    }
+    
+    .admin-btn:hover {
+      background: #106ebe;
+    }
+    
+    .admin-panel {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0, 0, 0, 0.4);
+      display: none;
+      justify-content: center;
+      align-items: center;
+      z-index: 1000;
+    }
+    
+    .admin-panel.active {
+      display: flex;
+    }
+    
+    .admin-content {
+      background: #ffffff;
+      border-radius: 8px;
+      padding: 32px;
+      width: 90%;
+      max-width: 500px;
+      box-shadow: 0 12px 40px rgba(0,0,0,0.24);
+    }
+    
+    .close-btn {
+      position: absolute;
+      top: 12px;
+      right: 12px;
+      background: none;
+      border: none;
+      font-size: 20px;
+      color: #605e5c;
+      cursor: pointer;
+      width: 32px;
+      height: 32px;
+      border-radius: 4px;
+      transition: all 0.1s;
+    }
+    
+    .close-btn:hover {
+      background: #f3f2f1;
+    }
+    
+    .form-group {
+      margin-bottom: 20px;
+    }
+    
+    .form-label {
+      display: block;
+      font-size: 14px;
+      font-weight: 600;
+      color: #323130;
+      margin-bottom: 8px;
+    }
+    
+    .form-input {
+      width: 100%;
+      padding: 8px 12px;
+      font-size: 14px;
+      border: 1px solid #8a8886;
+      border-radius: 2px;
+      transition: all 0.1s;
+    }
+    
+    .form-input:focus {
+      outline: none;
+      border-color: #0078d4;
+      box-shadow: 0 0 0 1px #0078d4;
+    }
+    
+    .submit-btn {
+      width: 100%;
+      background: #0078d4;
+      color: #ffffff;
+      border: none;
+      padding: 10px;
+      border-radius: 2px;
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    
+    .submit-btn:hover {
+      background: #106ebe;
+    }
+    
+    .empty-state {
+      text-align: center;
+      padding: 80px 40px;
+      background: #ffffff;
+      border-radius: 8px;
+      border: 2px dashed #d2d0ce;
+    }
+    
+    .empty-state-icon {
+      font-size: 64px;
+      margin-bottom: 16px;
+      opacity: 0.6;
+    }
+    
+    .empty-state h2 {
+      font-size: 24px;
+      font-weight: 600;
+      color: #323130;
+      margin-bottom: 8px;
+    }
+    
+    .empty-state p {
+      font-size: 14px;
+      color: #605e5c;
+    }
+    
+    .message {
+      padding: 12px 16px;
+      border-radius: 4px;
+      margin-bottom: 20px;
+      font-size: 14px;
+      display: none;
+      border-left: 4px solid;
+    }
+    
+    .message.success {
+      background: #dff6dd;
+      border-color: #107c10;
+      color: #0b5a08;
+    }
+    
+    .message.error {
+      background: #fde7e9;
+      border-color: #a80000;
+      color: #a80000;
+    }
+    
+    .message.show {
+      display: block;
+    }
+    
+    @media (max-width: 768px) {
+      .header h1 { font-size: 32px; }
+      .countdown-grid { grid-template-columns: 1fr; gap: 16px; }
+      .countdown-card { padding: 24px; }
+      .flip-card { width: 40px; height: 56px; }
+      .flip-number { font-size: 30px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <a href="/" class="back-link">← 返回首页</a>
+    
+    <div class="header">
+      <h1>⏰ 倒计时</h1>
+      <p>重要时刻，倒数计时</p>
+    </div>
+    
+    <div id="countdownGrid" class="countdown-grid"></div>
+    
+    <div class="admin-section">
+      <button class="admin-btn" onclick="openAdminPanel()">➕ 管理倒计时</button>
+    </div>
+  </div>
+  
+  <div id="adminPanel" class="admin-panel">
+    <div class="admin-content">
+      <button class="close-btn" onclick="closeAdminPanel()">×</button>
+      <h2 style="margin-bottom: 24px; color: #323130; font-size: 20px; font-weight: 600;">管理倒计时</h2>
+      
+      <div id="message" class="message"></div>
+      
+      <div class="form-group">
+        <label class="form-label">管理员密钥</label>
+        <input type="password" id="adminToken" class="form-input" placeholder="请输入 ADMIN_TOKEN">
+      </div>
+      
+      <div class="form-group">
+        <label class="form-label">倒计时标题</label>
+        <input type="text" id="countdownTitle" class="form-input" placeholder="例如：高考倒计时">
+      </div>
+      
+      <div class="form-group">
+        <label class="form-label">目标日期时间</label>
+        <input type="datetime-local" id="targetTime" class="form-input">
+      </div>
+      
+      <button class="submit-btn" onclick="addCountdown()">添加倒计时</button>
+    </div>
+  </div>
+  
+  <script>
+    let countdowns = [];
+    let intervalIds = [];
+    
+    async function loadCountdowns() {
+      try {
+        const response = await fetch('/api/countdowns');
+        const data = await response.json();
+        if (data.success) {
+          countdowns = data.data;
+          renderCountdowns();
+        }
+      } catch (error) {
+        console.error('加载倒计时失败:', error);
+      }
+    }
+    
+    function clearAllIntervals() {
+      intervalIds.forEach(id => clearInterval(id));
+      intervalIds = [];
+    }
+    
+    function renderCountdowns() {
+      clearAllIntervals();
+      const grid = document.getElementById('countdownGrid');
+      
+      if (countdowns.length === 0) {
+        grid.innerHTML = \`
+          <div class="empty-state">
+            <div class="empty-state-icon">⏰</div>
+            <h2>还没有倒计时</h2>
+            <p>点击下方按钮添加你的第一个倒计时吧</p>
+          </div>
+        \`;
+        return;
+      }
+      
+      grid.innerHTML = '';
+      
+      countdowns.forEach((countdown) => {
+        const now = Date.now();
+        const target = countdown.target_time;
+        
+        if (target <= now) {
+          const card = document.createElement('div');
+          card.className = 'countdown-card';
+          card.innerHTML = \`
+            <button class="delete-btn" onclick="deleteCountdown(\${countdown.id})">×</button>
+            <div class="countdown-complete">
+              <h3>🎉 \${countdown.title}</h3>
+              <p>时间已到！</p>
+            </div>
+          \`;
+          grid.appendChild(card);
+        } else {
+          const card = document.createElement('div');
+          card.className = 'countdown-card';
+          card.innerHTML = \`
+            <button class="delete-btn" onclick="deleteCountdown(\${countdown.id})">×</button>
+            <div class="countdown-title">\${countdown.title}</div>
+            <div id="countdown-\${countdown.id}" class="flip-clock"></div>
+          \`;
+          grid.appendChild(card);
+          startCountdown(countdown.id, target);
+        }
+      });
+    }
+    
+    function startCountdown(id, targetTime) {
+      const container = document.getElementById(\`countdown-\${id}\`);
+      
+      // 创建翻牌时钟结构
+      const units = [
+        { label: 'Days', ids: ['days1', 'days2', 'days3'] },
+        { label: 'Hours', ids: ['hours1', 'hours2'] },
+        { label: 'Minutes', ids: ['minutes1', 'minutes2'] },
+        { label: 'Seconds', ids: ['seconds1', 'seconds2'] }
+      ];
+      
+      let html = '';
+      units.forEach(unit => {
+        html += \`<div class="flip-unit"><div class="flip-label">\${unit.label}</div><div class="flip-card-container">\`;
+        unit.ids.forEach(digitId => {
+          html += \`
+            <div class="flip-card" id="\${digitId}-\${id}">
+              <div class="flip-card-top">
+                <div class="flip-number" id="\${digitId}-current-top-\${id}">0</div>
+              </div>
+              <div class="flip-card-bottom">
+                <div class="flip-number" id="\${digitId}-current-bottom-\${id}">0</div>
+              </div>
+              <div class="flip-card-top-flip" id="\${digitId}-top-flip-\${id}" style="display:none">
+                <div class="flip-number" id="\${digitId}-next-top-\${id}">0</div>
+              </div>
+              <div class="flip-card-bottom-flip" id="\${digitId}-bottom-flip-\${id}" style="display:none">
+                <div class="flip-number" id="\${digitId}-next-bottom-\${id}">0</div>
+              </div>
+            </div>
+          \`;
+        });
+        html += \`</div></div>\`;
+      });
+      
+      container.innerHTML = html;
+      
+      function update() {
+        const now = Date.now();
+        const diff = targetTime - now;
+        
+        if (diff <= 0) {
+          loadCountdowns();
+          return;
+        }
+        
+        const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+        const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+        const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+        const seconds = Math.floor((diff % (1000 * 60)) / 1000);
+        
+        updateDigit(\`days1-\${id}\`, Math.floor(days / 100));
+        updateDigit(\`days2-\${id}\`, Math.floor((days % 100) / 10));
+        updateDigit(\`days3-\${id}\`, days % 10);
+        updateDigit(\`hours1-\${id}\`, Math.floor(hours / 10));
+        updateDigit(\`hours2-\${id}\`, hours % 10);
+        updateDigit(\`minutes1-\${id}\`, Math.floor(minutes / 10));
+        updateDigit(\`minutes2-\${id}\`, minutes % 10);
+        updateDigit(\`seconds1-\${id}\`, Math.floor(seconds / 10));
+        updateDigit(\`seconds2-\${id}\`, seconds % 10);
+      }
+      
+      update();
+      const intervalId = setInterval(update, 1000);
+      intervalIds.push(intervalId);
+    }
+    
+    // 【机场翻牌机效果】更新单个数字
+    function updateDigit(digitId, newValue) {
+      const currentTop = document.getElementById(\`\${digitId}-current-top\`);
+      const currentBottom = document.getElementById(\`\${digitId}-current-bottom\`);
+      
+      if (!currentTop || !currentBottom) return;
+      
+      const currentValue = parseInt(currentTop.textContent) || 0;
+      
+      if (currentValue !== newValue) {
+        const card = document.getElementById(digitId);
+        const topFlip = document.getElementById(\`\${digitId}-top-flip\`);
+        const bottomFlip = document.getElementById(\`\${digitId}-bottom-flip\`);
+        const nextTop = document.getElementById(\`\${digitId}-next-top\`);
+        const nextBottom = document.getElementById(\`\${digitId}-next-bottom\`);
+        
+        if (!card || !topFlip || !bottomFlip || !nextTop || !nextBottom) return;
+        
+        // 防止重复动画
+        if (card.classList.contains('flipping')) return;
+        
+        // 设置新数字
+        nextTop.textContent = newValue;
+        nextBottom.textContent = newValue;
+        
+        // 显示翻牌元素
+        topFlip.style.display = 'block';
+        bottomFlip.style.display = 'block';
+        
+        // 开始翻牌动画
+        card.classList.add('flipping');
+        
+        // 动画结束后更新当前数字并隐藏翻牌元素
+        setTimeout(() => {
+          currentTop.textContent = newValue;
+          currentBottom.textContent = newValue;
+          topFlip.style.display = 'none';
+          bottomFlip.style.display = 'none';
+          card.classList.remove('flipping');
+        }, 600);
+      }
+    }
+    
+    function openAdminPanel() {
+      document.getElementById('adminPanel').classList.add('active');
+      const savedToken = localStorage.getItem('admin_token');
+      if (savedToken) {
+        document.getElementById('adminToken').value = savedToken;
+      }
+    }
+    
+    function closeAdminPanel() {
+      document.getElementById('adminPanel').classList.remove('active');
+      hideMessage();
+    }
+    
+    async function addCountdown() {
+      const token = document.getElementById('adminToken').value.trim();
+      const title = document.getElementById('countdownTitle').value.trim();
+      const targetTime = document.getElementById('targetTime').value;
+      
+      if (!token) {
+        showMessage('请输入管理员密钥', 'error');
+        return;
+      }
+      
+      if (!title) {
+        showMessage('请输入倒计时标题', 'error');
+        return;
+      }
+      
+      if (!targetTime) {
+        showMessage('请选择目标日期时间', 'error');
+        return;
+      }
+      
+      try {
+        const response = await fetch('/api/countdown/add', {
+          method: 'POST',
+          headers: {
+            'Authorization': \`Bearer \${token}\`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            title: title,
+            target_time: new Date(targetTime).toISOString()
+          })
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+          localStorage.setItem('admin_token', token);
+          showMessage('倒计时添加成功！', 'success');
+          document.getElementById('countdownTitle').value = '';
+          document.getElementById('targetTime').value = '';
+          
+          setTimeout(() => {
+            closeAdminPanel();
+            loadCountdowns();
+          }, 1500);
+        } else {
+          showMessage(data.error || '添加失败', 'error');
+        }
+      } catch (error) {
+        showMessage('网络错误：' + error.message, 'error');
+      }
+    }
+    
+    async function deleteCountdown(id) {
+      if (!confirm('确定要删除这个倒计时吗？')) {
+        return;
+      }
+      
+      const token = localStorage.getItem('admin_token');
+      if (!token) {
+        alert('请先在管理面板中输入管理员密钥');
+        return;
+      }
+      
+      try {
+        const response = await fetch('/api/countdown/delete', {
+          method: 'POST',
+          headers: {
+            'Authorization': \`Bearer \${token}\`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ id })
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+          loadCountdowns();
+        } else {
+          alert(data.error || '删除失败');
+        }
+      } catch (error) {
+        alert('网络错误：' + error.message);
+      }
+    }
+    
+    function showMessage(text, type) {
+      const message = document.getElementById('message');
+      message.textContent = text;
+      message.className = \`message \${type} show\`;
+      setTimeout(() => hideMessage(), 5000);
+    }
+    
+    function hideMessage() {
+      const message = document.getElementById('message');
+      message.classList.remove('show');
+    }
+    
+    loadCountdowns();
+    setInterval(loadCountdowns, 30000);
+  </script>
 </body>
 </html>
   `;
