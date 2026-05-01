@@ -188,7 +188,7 @@ async function handleScheduled(env, ctx) {
 
 /* ================= 新闻更新任务 ================= */
 
-async function updateNewsTask(env) {
+/* old code - async function updateNewsTask(env) {
   // 1. 清空旧数据
   await clearOldNews(env);
   
@@ -198,6 +198,20 @@ async function updateNewsTask(env) {
   // 3. 存入 D1 数据库
   await saveNewsToD1(env, newsData);
   
+  console.log(`已更新 ${newsData.length} 条新闻到数据库`);
+}*/
+async function updateNewsTask(env) {
+  await clearOldNews(env);
+  const newsData = await fetchAllNews(env);   // ← 传 env 进去给翻译用
+  await saveNewsToD1(env, newsData);
+
+  // 新增：推送到 Telegram
+  try {
+    await pushNewsToTelegram(env, newsData);
+  } catch (e) {
+    console.error('TG 推送整体失败:', e);
+  }
+
   console.log(`已更新 ${newsData.length} 条新闻到数据库`);
 }
 
@@ -300,7 +314,7 @@ async function handleNewsAPI(env) {
 
 /* ================= 新闻爬取逻辑（稳定版 - 使用可靠API） ================= */
 
-async function fetchAllNews() {
+/*async function fetchAllNews() {
   const newsSources = [
     { name: 'V2EX热门', fetch: fetchV2EXHot },
     { name: '微博热搜', fetch: fetchWeiboHotNew },
@@ -329,6 +343,31 @@ async function fetchAllNews() {
   });
 
   return allNews;
+}*/
+async function fetchAllNews(env) {
+  const newsSources = [
+    { name: 'V2EX热门',       fetch: () => fetchV2EXHot() },
+    { name: '微博热搜',       fetch: () => fetchWeiboHotNew() },
+    { name: 'Hacker News',   fetch: () => fetchHackerNews(env) }, // ← 传 env
+    { name: 'GitHub Trending', fetch: () => fetchGitHubTrending() },
+    { name: '少数派',         fetch: () => fetchSsPaiNews() }
+  ];
+
+  const results = await Promise.allSettled(
+    newsSources.map(async source => {
+      try {
+        const news = await source.fetch();
+        return news.map(item => ({ ...item, source: source.name }));
+      } catch (err) {
+        console.error(`${source.name} 获取失败:`, err);
+        return [];
+      }
+    })
+  );
+
+  let allNews = [];
+  results.forEach(r => { if (r.status === 'fulfilled') allNews = allNews.concat(r.value); });
+  return allNews;
 }
 
 // V2EX 热门话题（官方API，极其稳定）
@@ -356,39 +395,62 @@ async function fetchV2EXHot() {
 }
 
 // Hacker News Top Stories（官方API，极其稳定）
-async function fetchHackerNews() {
+async function fetchHackerNews(env) {
   try {
-    // 获取热门故事ID列表
     const response = await fetch('https://hacker-news.firebaseio.com/v0/topstories.json', {
       signal: AbortSignal.timeout(8000)
     });
-    
     if (!response.ok) return [];
-    
     const ids = await response.json();
     if (!Array.isArray(ids)) return [];
-    
-    // 获取前10条详情
+
     const topIds = ids.slice(0, 10);
     const items = await Promise.all(
-      topIds.map(id => 
+      topIds.map(id =>
         fetch(`https://hacker-news.firebaseio.com/v0/item/${id}.json`, {
           signal: AbortSignal.timeout(5000)
-        })
-          .then(r => r.json())
-          .catch(() => null)
+        }).then(r => r.json()).catch(() => null)
       )
     );
-    
-    return items.filter(Boolean).map(item => ({
-      title: item.title,
-      link: item.url || `https://news.ycombinator.com/item?id=${item.id}`,
-      description: `${item.score || 0} points | ${item.descendants || 0} comments`,
-      pubDate: item.time ? item.time * 1000 : Date.now()
-    }));
+
+    const valid = items.filter(Boolean);
+
+    // 并发翻译标题（限制并发以防触发限额)
+    const translated = await Promise.all(
+      valid.map(async item => {
+        const zhTitle = await translateToZh(env, item.title);
+        const finalTitle = zhTitle && zhTitle !== item.title
+          ? `${zhTitle}（${item.title}）`
+          : item.title;
+        return {
+          title: finalTitle,
+          link: item.url || `https://news.ycombinator.com/item?id=${item.id}`,
+          description: `${item.score || 0} points | ${item.descendants || 0} comments`,
+          pubDate: item.time ? item.time * 1000 : Date.now()
+        };
+      })
+    );
+
+    return translated;
   } catch (error) {
     console.error('Hacker News 获取失败:', error);
     return [];
+  }
+}
+
+// Workers AI 翻译（en → zh）
+async function translateToZh(env, text) {
+  if (!text || !env.AI) return text;
+  try {
+    const res = await env.AI.run('@cf/meta/m2m100-1.2b', {
+      text,
+      source_lang: 'english',
+      target_lang: 'chinese'
+    });
+    return (res && res.translated_text) ? res.translated_text.trim() : text;
+  } catch (e) {
+    console.error('翻译失败:', e);
+    return text;
   }
 }
 
@@ -472,7 +534,87 @@ async function fetchWeiboHotNew() {
     return [];
   }
 }
+async function pushNewsToTelegram(env, newsData) {
+  const token  = env.TELEGRAM_BOT_TOKEN;
+  const chatId = env.TELEGRAM_CHAT_ID;
+  if (!token || !chatId) {
+    console.log('未配置 TG 变量，跳过推送');
+    return;
+  }
+  if (!newsData || !newsData.length) return;
 
+  // 按来源分组
+  const grouped = {};
+  for (const item of newsData) {
+    const src = item.source || '其他';
+    (grouped[src] ||= []).push(item);
+  }
+
+  const header = `🗞 <b>新闻更新</b> · ${new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })}\n共 ${newsData.length} 条`;
+  await sendTG(token, chatId, header);
+
+  for (const [source, items] of Object.entries(grouped)) {
+    const lines = [`<b>📰 ${escTg(source)}</b>`];
+    items.forEach((item, i) => {
+      const title = escTg(item.title || '');
+      const link  = item.link || '';
+      lines.push(link
+        ? `${i + 1}. <a href="${escTg(link)}">${title}</a>`
+        : `${i + 1}. ${title}`);
+      if (item.description) lines.push(`   <i>${escTg(item.description)}</i>`);
+    });
+
+    // 单条 TG 消息上限 4096 字符，留点余量
+    for (const chunk of chunkText(lines.join('\n'), 3800)) {
+      await sendTG(token, chatId, chunk);
+      await sleep(350); // 简单限速，避免 429
+    }
+  }
+}
+
+async function sendTG(token, chatId, text) {
+  try {
+    const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        chat_id: chatId,
+        text,
+        parse_mode: 'HTML',
+        disable_web_page_preview: true
+      })
+    });
+    if (!res.ok) {
+      console.error('TG 发送失败:', res.status, await res.text());
+    }
+  } catch (e) {
+    console.error('TG 发送异常:', e);
+  }
+}
+
+function escTg(s) {
+  return String(s ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+function chunkText(text, max) {
+  const out = [];
+  let cur = '';
+  for (const line of text.split('\n')) {
+    if ((cur ? cur.length + 1 : 0) + line.length > max) {
+      if (cur) out.push(cur);
+      cur = line.length > max ? line.slice(0, max) : line;
+    } else {
+      cur = cur ? cur + '\n' + line : line;
+    }
+  }
+  if (cur) out.push(cur);
+  return out;
+}
+
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
 
 // RSS 解析器
@@ -752,6 +894,9 @@ async function handleDeleteCountdown(request, env) {
 
 /* ================= 主页 HTML ================= */
 
+
+/* ================= 主页 HTML ================= */
+
 function getMainHTML(isChina) {
   return `
 <!DOCTYPE html>
@@ -762,92 +907,266 @@ function getMainHTML(isChina) {
   <title>清流中学非官方站</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { min-height: 100vh; display: flex; align-items: center; justify-content: center; font-family: 'Microsoft YaHei', Arial, sans-serif; overflow: hidden; position: relative; }
-    .gradient-bg { position: fixed; inset: 0; background: linear-gradient(-45deg, #667eea, #764ba2, #f093fb, #4facfe); background-size: 400% 400%; animation: gradientFlow 15s ease infinite; z-index: -1; }
-    @keyframes gradientFlow { 0% { background-position: 0% 50%; } 50% { background-position: 100% 50%; } 100% { background-position: 0% 50%; } }
+    body {
+      font-family: 'Segoe UI', 'Microsoft YaHei', sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      padding: 2rem;
+      overflow-x: hidden;
+    }
+    .container { text-align: center; max-width: 800px; width: 100%; }
+    .gradient-bg {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      z-index: -2;
+    }
+    .gradient-bg::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: radial-gradient(circle at 30% 50%, rgba(255, 255, 255, 0.1) 0%, transparent 50%),
+                  radial-gradient(circle at 70% 80%, rgba(255, 255, 255, 0.1) 0%, transparent 50%);
+      animation: float 15s ease-in-out infinite;
+    }
+    @keyframes float {
+      0%, 100% { transform: translate(0, 0); }
+      50% { transform: translate(20px, 20px); }
+    }
     
     /* 开源公告横幅 */
     .announcement-banner {
       position: fixed;
-      top: 20px;
+      top: 50px;
       left: 50%;
       transform: translateX(-50%);
-      background: rgba(255, 255, 255, 0.95);
+      background: rgba(255, 255, 255, 0.15);
       backdrop-filter: blur(10px);
-      padding: 12px 24px;
+      border: 1px solid rgba(255, 255, 255, 0.3);
       border-radius: 50px;
-      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+      padding: 12px 24px;
       display: flex;
       align-items: center;
       gap: 12px;
-      z-index: 1000;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+      z-index: 100;
       animation: slideDown 0.6s ease-out;
-      border: 1px solid rgba(255, 255, 255, 0.3);
     }
-    
     @keyframes slideDown {
       from {
         opacity: 0;
-        transform: translate(-50%, -20px);
+        transform: translateX(-50%) translateY(-20px);
       }
       to {
         opacity: 1;
-        transform: translate(-50%, 0);
+        transform: translateX(-50%) translateY(0);
       }
     }
-    
-    .announcement-banner:hover {
-      box-shadow: 0 12px 48px rgba(0, 0, 0, 0.15);
-      transform: translateX(-50%) translateY(-2px);
-      transition: all 0.3s ease;
-    }
-    
     .announcement-icon {
       font-size: 20px;
       animation: pulse 2s ease-in-out infinite;
     }
-    
     @keyframes pulse {
       0%, 100% { transform: scale(1); }
       50% { transform: scale(1.1); }
     }
-    
     .announcement-text {
+      color: #fff;
       font-size: 14px;
-      color: #333;
       font-weight: 500;
     }
-    
     .github-link {
-      color: #0078d4;
+      color: #fff;
       text-decoration: none;
-      font-weight: 600;
       display: inline-flex;
       align-items: center;
-      gap: 4px;
-      transition: all 0.2s;
+      gap: 6px;
+      padding: 4px 12px;
+      background: rgba(255, 255, 255, 0.2);
+      border-radius: 20px;
+      transition: all 0.3s;
     }
-    
     .github-link:hover {
-      color: #106ebe;
-      transform: translateY(-1px);
+      background: rgba(255, 255, 255, 0.3);
+      transform: translateY(-2px);
     }
-    
     .github-icon {
       font-size: 16px;
     }
     
-    .container { text-align: center; padding: 20px; z-index: 1; }
-    h1 { font-size: 4rem; color: #fff; margin-bottom: 2rem; min-height: 5rem; text-shadow: 2px 2px 4px rgba(0,0,0,.3); }
-    .cursor { animation: blink 1s infinite; }
-    @keyframes blink { 0%,50%{opacity:1} 51%,100%{opacity:0} }
-    .subtitle { font-size: 1.5rem; color: rgba(255,255,255,.9); margin-top: 2rem; }
+    h1 {
+      font-size: 4rem;
+      font-weight: 700;
+      color: #fff;
+      text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.2);
+      margin-bottom: 1rem;
+      position: relative;
+      display: inline-block;
+    }
+    .subtitle {
+      font-size: 1.1rem;
+      color: rgba(255, 255, 255, 0.95);
+      margin-bottom: 3rem;
+      text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.1);
+    }
+    .cursor {
+      display: inline-block;
+      width: 3px;
+      height: 1em;
+      background-color: #fff;
+      margin-left: 0.1rem;
+      animation: blink 1s step-end infinite;
+    }
+    @keyframes blink {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0; }
+    }
     .button-container { margin-top: 3rem; display: flex; gap: 1.5rem; justify-content: center; flex-wrap: wrap; }
-    .action-btn { padding: 12px 30px; color:#fff; border-radius:50px; border:2px solid rgba(255,255,255,.4); text-decoration:none; backdrop-filter: blur(10px); transition:.3s; }
-    .action-btn:hover { transform: translateY(-3px); background: rgba(255,255,255,.25); }
+    .action-btn {
+      display: inline-block;
+      padding: 1rem 2rem;
+      background: rgba(255, 255, 255, 0.2);
+      color: #fff;
+      text-decoration: none;
+      border-radius: 50px;
+      font-weight: 600;
+      font-size: 1rem;
+      backdrop-filter: blur(10px);
+      border: 1px solid rgba(255, 255, 255, 0.3);
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+    }
+    .action-btn:hover {
+      background: rgba(255, 255, 255, 0.3);
+      transform: translateY(-5px);
+      box-shadow: 0 8px 25px rgba(0, 0, 0, 0.15);
+    }
     
-    /* 响应式设计 */
-    @media (max-width: 640px) {
+    /* 二级菜单容器 */
+    .menu-group {
+      position: relative;
+      display: inline-block;
+    }
+    
+    /* 主按钮 */
+    .menu-trigger {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 1rem 2rem;
+      background: rgba(255, 255, 255, 0.2);
+      color: #fff;
+      text-decoration: none;
+      border-radius: 50px;
+      font-weight: 600;
+      font-size: 1rem;
+      backdrop-filter: blur(10px);
+      border: 1px solid rgba(255, 255, 255, 0.3);
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+      cursor: pointer;
+      user-select: none;
+    }
+    
+    .menu-trigger:hover {
+      background: rgba(255, 255, 255, 0.3);
+      transform: translateY(-5px);
+      box-shadow: 0 8px 25px rgba(0, 0, 0, 0.15);
+    }
+    
+    /* 箭头图标 */
+    .menu-arrow {
+      display: inline-block;
+      transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      font-size: 0.8rem;
+    }
+    
+    .menu-group.open .menu-arrow {
+      transform: rotate(180deg);
+    }
+    
+    /* 二级菜单 */
+    .submenu {
+      position: absolute;
+      top: calc(100% + 10px);
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(255, 255, 255, 0.25);
+      backdrop-filter: blur(15px);
+      border: 1px solid rgba(255, 255, 255, 0.4);
+      border-radius: 20px;
+      padding: 0;
+      min-width: 200px;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+      overflow: hidden;
+      max-height: 0;
+      opacity: 0;
+      transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+      pointer-events: none;
+    }
+    
+    .menu-group.open .submenu {
+      max-height: 300px;
+      opacity: 1;
+      pointer-events: all;
+    }
+    
+    /* 子菜单项 */
+    .submenu-item {
+      display: block;
+      padding: 0.9rem 1.5rem;
+      color: #fff;
+      text-decoration: none;
+      font-weight: 500;
+      font-size: 0.95rem;
+      transition: all 0.2s;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+      opacity: 0;
+      transform: translateY(-10px);
+    }
+    
+    .submenu-item:last-child {
+      border-bottom: none;
+    }
+    
+    .submenu-item:hover {
+      background: rgba(255, 255, 255, 0.2);
+      padding-left: 2rem;
+    }
+    
+    .menu-group.open .submenu-item {
+      animation: fadeInItem 0.3s ease-out forwards;
+    }
+    
+    @keyframes fadeInItem {
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+    
+    .menu-group.open .submenu-item:nth-child(1) {
+      animation-delay: 0.05s;
+    }
+    
+    .menu-group.open .submenu-item:nth-child(2) {
+      animation-delay: 0.1s;
+    }
+    
+    @media (max-width: 768px) {
+      h1 { font-size: 2.5rem; }
+      .subtitle { font-size: 1rem; }
+      .button-container { flex-direction: column; align-items: center; }
+      .action-btn, .menu-trigger { width: 100%; max-width: 300px; }
       .announcement-banner {
         top: 10px;
         padding: 10px 20px;
@@ -879,23 +1198,62 @@ function getMainHTML(isChina) {
 
 <div class="container">
   <h1 id="text"><span class="cursor">|</span></h1>
-  <div class="subtitle">如遇问题请联系 support@mail.qlzx.lol</div>
+  <div class="subtitle">听说平台统一密码为sh13579@,查询界面位于学生服务下</div>
   <div class="button-container">
     <a href="https://mirror.qlzx.lol" class="action-btn">📥 下载镜像中转</a>
-    <a href="https://ping0.cc" class="action-btn">🌐 IP检测</a>
+    <a href="https://wl.qlzx.qzz.io" class="action-btn">🧪 物理实验操作方法</a>
     <a href="https://time.qlzx.lol" class="action-btn">🕐 北京时间</a>
-    <a href="https://dy.pdedu.sh.cn/phyEdu/student/#/home" class="action-btn">🏃 中考体育报名</a>
+    
+    <!-- 二级菜单 -->
+    <div class="menu-group">
+      <div class="menu-trigger" onclick="toggleMenu(event)">
+        📚 学生服务
+        <span class="menu-arrow">▼</span>
+      </div>
+      <div class="submenu">
+        <a href="https://zp.shec.edu.cn/" class="submenu-item" target="_blank" rel="noopener noreferrer">📋 综合素质评价</a>
+        <a href="https://jkpt.koukao.cn" class="submenu-item" target="_blank" rel="noopener noreferrer">🎧 听说教考平台</a>
+      </div>
+    </div>
+    
     <a href="/news.html" class="action-btn">📰 热点新闻</a>
     <a href="/email-apply.html" class="action-btn">📧 邮箱申请</a>
   </div>
 </div>
 <script>
   const t='清流中学非官方站';let i=0,d=false,e=document.getElementById('text');
-  (function f(){if(!d){if(i<t.length){e.innerHTML=t.slice(0,++i)+'<span class="cursor">|</span>';setTimeout(f,150)}else setTimeout(()=>{d=true;f()},2000)}
+  (function f(){if(!d){if(i<t.length){e.innerHTML=t.slice(0,++i)+'<span class="cursor">|</span>';setTimeout(f,150)}else setTimeout(()=>{document.querySelector('.cursor').style.display='none';d=true;f()},2000)}
   else{if(i>0){e.innerHTML=t.slice(0,--i)+'<span class="cursor">|</span>';setTimeout(f,100)}else{d=false;setTimeout(f,500)}}})();
+  
+  // 二级菜单控制
+  function toggleMenu(event) {
+    event.stopPropagation();
+    const menuGroup = event.currentTarget.parentElement;
+    const isOpen = menuGroup.classList.contains('open');
+    
+    // 关闭所有其他菜单
+    document.querySelectorAll('.menu-group.open').forEach(group => {
+      if (group !== menuGroup) {
+        group.classList.remove('open');
+      }
+    });
+    
+    // 切换当前菜单
+    menuGroup.classList.toggle('open');
+  }
+  
+  // 点击外部关闭菜单
+  document.addEventListener('click', function(event) {
+    if (!event.target.closest('.menu-group')) {
+      document.querySelectorAll('.menu-group.open').forEach(group => {
+        group.classList.remove('open');
+      });
+    }
+  });
 </script>
 </body>
-</html>`;
+</html>
+  `;
 }
 
 /* ================= 新闻页面 HTML ================= */
