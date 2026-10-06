@@ -1,0 +1,7 @@
+# exam-mode-web 考试模式 worker 部署配置
+# 用法: npx wrangler deploy -c wrangler.exam.toml --keep-vars
+# 注意: qlzx.lol/exam 走的是 old-news-api.js 里集成的那一份，
+#       这个 worker 是独立的另一个线上部署，两边改动要同步。
+name = "exam-mode-web"
+main = "exam-mode-web.js"
+compatibility_date = "2025-01-01"

@@ -1,0 +1,43 @@
+# old-news 新闻推送 worker 部署配置
+# 用法: npx wrangler deploy -c wrangler.old-news.toml --keep-vars
+name = "normal-welcomed-page"
+main = "old-news-api.js"
+compatibility_date = "2025-01-01"
+
+[[kv_namespaces]]
+binding = "FILES_KV"
+id = "83157217877b4893a3712d93babe7bd6"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "qlzx-news-db"
+database_id = "63356ff3-cc07-44ba-9638-2de374443763"
+
+[ai]
+binding = "AI"
+
+# 两个 cron 各自独立 invocation，各拿一份 50 subrequests 预算：
+#   主任务 = 抓取 + 入库；AI 抽检 = 错开 30 分钟单独跑
+#   （TG 推送 2026-09-18 已下线，存档 normal-pages/archive/tg-push.js）
+# 改动需与 old-news-api.js 里的 CRON_MAIN / CRON_REVIEW 保持一致
+[triggers]
+crons = ["0 */4 * * *", "30 */4 * * *"]
+
+# 变量/密钥不写在这里，用 --keep-vars 保留线上配置
+# 改密钥: npx wrangler secret put <NAME> -c wrangler.old-news.toml
+
+# 观测日志：保持 CF 端 Workers 日志开启，勿关
+[observability]
+enabled = false
+head_sampling_rate = 1
+
+[observability.logs]
+enabled = true
+head_sampling_rate = 1
+persist = true
+invocation_logs = true
+
+[observability.traces]
+enabled = false
+persist = true
+head_sampling_rate = 1

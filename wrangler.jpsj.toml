@@ -1,0 +1,33 @@
+# jpsj-website 建平世纪全站 worker 部署配置
+# 用法: npx wrangler deploy -c wrangler.jpsj.toml --keep-vars
+name = "jpc-normal-page"
+main = "new-jpsj-website.js"
+compatibility_date = "2025-01-01"
+
+[[kv_namespaces]]
+binding = "FILES_KV"
+id = "83157217877b4893a3712d93babe7bd6"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "jpc_d1"
+database_id = "71dad08e-eb89-4d3f-8ab8-47fffcd71186"
+
+# 变量/密钥不写在这里，用 --keep-vars 保留线上配置
+# 改密钥: npx wrangler secret put <NAME> -c wrangler.jpsj.toml
+
+# 观测日志：保持 CF 端 Workers 日志开启，勿关
+[observability]
+enabled = false
+head_sampling_rate = 1
+
+[observability.logs]
+enabled = true
+head_sampling_rate = 1
+persist = true
+invocation_logs = true
+
+[observability.traces]
+enabled = false
+persist = true
+head_sampling_rate = 1
